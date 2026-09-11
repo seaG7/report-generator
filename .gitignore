@@ -1,0 +1,9 @@
+student.yaml
+subjects/**/work/
+subjects/**/screenshots/
+subjects/**/preview/
+__pycache__/
+.pytest_cache/
+*.pyc
+.venv/
+venv/
