@@ -149,3 +149,26 @@ def test_replace_body_table_fits_page_and_header_is_white(tmp_path: Path):
     assert width <= content
     shd = tbl.rows[0].cells[0]._tc.find(qn("w:tcPr")).find(qn("w:shd"))
     assert shd is not None and shd.get(qn("w:fill")) == "FFFFFF"
+
+
+def test_replace_body_inserts_updateable_word_toc(tmp_path: Path):
+    from docx.oxml.ns import qn
+
+    work = tmp_path / "lab"
+    shots = work / "screenshots"
+    work.mkdir()
+    img = tmp_path / "one.png"
+    Image.new("RGB", (80, 40)).save(img)
+    docx = work / "report.docx"
+    make_sample_docx(docx, image=img)
+    register_image(img, shots, "Первый", "other", slug="one")
+    mark_ok(shots, "01-one.png")
+    md = work / "report.md"
+    md.write_text("# Цель работы\n\nАбзац цели.\n\n# Выводы\n\nАбзац выводов.\n", encoding="utf-8")
+    replace_body(docx, md, TF, work)
+    doc = Document(str(docx))
+    gallery = doc.element.body.find(".//" + qn("w:docPartGallery"))
+    assert gallery is not None
+    assert gallery.get(qn("w:val")) == "Table of Contents"
+    names = [b.get(qn("w:name")) for b in doc.element.body.findall(".//" + qn("w:bookmarkStart"))]
+    assert any(n and n.startswith("_Toc") for n in names)

@@ -15,6 +15,7 @@ from tools.insert_figure import append_cloned_figure
 from tools.parse_report import parse_report_md
 from tools.paths import assert_not_sample
 from tools.screenshot import load_manifest
+from tools.toc import insert_word_toc
 
 
 class ComposeError(Exception):
@@ -331,40 +332,6 @@ def _keep_next(p_elem) -> None:
         pPr.append(OxmlElement("w:keepNext"))
 
 
-def _insert_toc_field(document) -> None:
-    p = OxmlElement("w:p")
-    pPr = OxmlElement("w:pPr")
-    spacing = OxmlElement("w:spacing")
-    spacing.set(qn("w:line"), "360")
-    spacing.set(qn("w:lineRule"), "auto")
-    pPr.append(spacing)
-    p.append(pPr)
-
-    def append_run(*children) -> None:
-        r = OxmlElement("w:r")
-        for child in children:
-            r.append(child)
-        p.append(r)
-
-    begin = OxmlElement("w:fldChar")
-    begin.set(qn("w:fldCharType"), "begin")
-    append_run(begin)
-    instr = OxmlElement("w:instrText")
-    instr.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-    instr.text = ' TOC \\o "1-2" \\h \\z \\u '
-    append_run(instr)
-    sep = OxmlElement("w:fldChar")
-    sep.set(qn("w:fldCharType"), "separate")
-    append_run(sep)
-    hint = OxmlElement("w:t")
-    hint.text = "Оглавление"
-    append_run(hint)
-    end = OxmlElement("w:fldChar")
-    end.set(qn("w:fldCharType"), "end")
-    append_run(end)
-    _insert_before_sect(document, p)
-
-
 def _content_dxa(document) -> int:
     section = document.sections[0]
     return max(1, int((section.page_width - section.left_margin - section.right_margin) / 635))
@@ -508,7 +475,6 @@ def replace_body(
         "СОДЕРЖАНИЕ",
         proto.heading_styles.get(1) or proto.body_style,
     )
-    _insert_toc_field(document)
     fig_n = 0
     tbl_n = 0
     for block in blocks:
@@ -571,6 +537,7 @@ def replace_body(
             )
         elif block.kind == "code":
             _add_code(document, block.text, proto)
+    insert_word_toc(document, tab_pos_dxa=_content_dxa(document))
     document.save(str(docx_path))
 
 
