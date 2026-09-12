@@ -322,6 +322,127 @@ def _set_cell_text(tc, text: str) -> None:
         tc.remove(extra_p)
 
 
+def _keep_next(p_elem) -> None:
+    pPr = p_elem.find(qn("w:pPr"))
+    if pPr is None:
+        pPr = OxmlElement("w:pPr")
+        p_elem.insert(0, pPr)
+    if pPr.find(qn("w:keepNext")) is None:
+        pPr.append(OxmlElement("w:keepNext"))
+
+
+def _insert_toc_field(document) -> None:
+    p = OxmlElement("w:p")
+    pPr = OxmlElement("w:pPr")
+    spacing = OxmlElement("w:spacing")
+    spacing.set(qn("w:line"), "360")
+    spacing.set(qn("w:lineRule"), "auto")
+    pPr.append(spacing)
+    p.append(pPr)
+
+    def append_run(*children) -> None:
+        r = OxmlElement("w:r")
+        for child in children:
+            r.append(child)
+        p.append(r)
+
+    begin = OxmlElement("w:fldChar")
+    begin.set(qn("w:fldCharType"), "begin")
+    append_run(begin)
+    instr = OxmlElement("w:instrText")
+    instr.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+    instr.text = ' TOC \\o "1-2" \\h \\z \\u '
+    append_run(instr)
+    sep = OxmlElement("w:fldChar")
+    sep.set(qn("w:fldCharType"), "separate")
+    append_run(sep)
+    hint = OxmlElement("w:t")
+    hint.text = "Оглавление"
+    append_run(hint)
+    end = OxmlElement("w:fldChar")
+    end.set(qn("w:fldCharType"), "end")
+    append_run(end)
+    _insert_before_sect(document, p)
+
+
+def _content_dxa(document) -> int:
+    section = document.sections[0]
+    return max(1, int((section.page_width - section.left_margin - section.right_margin) / 635))
+
+
+def _set_cell_white(tc) -> None:
+    tcPr = tc.find(qn("w:tcPr"))
+    if tcPr is None:
+        tcPr = OxmlElement("w:tcPr")
+        tc.insert(0, tcPr)
+    shd = tcPr.find(qn("w:shd"))
+    if shd is None:
+        shd = OxmlElement("w:shd")
+        tcPr.append(shd)
+    shd.set(qn("w:val"), "clear")
+    shd.set(qn("w:color"), "auto")
+    shd.set(qn("w:fill"), "FFFFFF")
+
+
+def _fit_table_width(tbl, width_dxa: int, ncols: int) -> None:
+    tblPr = tbl.find(qn("w:tblPr"))
+    if tblPr is None:
+        tblPr = OxmlElement("w:tblPr")
+        tbl.insert(0, tblPr)
+    tblW = tblPr.find(qn("w:tblW"))
+    if tblW is None:
+        tblW = OxmlElement("w:tblW")
+        tblPr.append(tblW)
+    tblW.set(qn("w:w"), str(width_dxa))
+    tblW.set(qn("w:type"), "dxa")
+    layout = tblPr.find(qn("w:tblLayout"))
+    if layout is None:
+        layout = OxmlElement("w:tblLayout")
+        tblPr.append(layout)
+    layout.set(qn("w:type"), "fixed")
+    look = tblPr.find(qn("w:tblLook"))
+    if look is not None:
+        look.set(qn("w:firstRow"), "0")
+        look.set(qn("w:noHBand"), "1")
+    grid = tbl.find(qn("w:tblGrid"))
+    old = []
+    if grid is not None:
+        old = [int(col.get(qn("w:w") or "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}w") or 0) for col in grid.findall(qn("w:gridCol"))]
+    if len(old) == ncols and sum(old) > 0:
+        total = sum(old)
+        widths = [max(200, int(w * width_dxa / total)) for w in old]
+    else:
+        base = width_dxa // max(ncols, 1)
+        widths = [base] * ncols
+    if widths:
+        widths[-1] += width_dxa - sum(widths)
+    if grid is None:
+        grid = OxmlElement("w:tblGrid")
+        tbl.insert(1, grid)
+    for col in list(grid.findall(qn("w:gridCol"))):
+        grid.remove(col)
+    for w in widths:
+        col = OxmlElement("w:gridCol")
+        col.set(qn("w:w"), str(w))
+        grid.append(col)
+    for tr in tbl.findall(qn("w:tr")):
+        tcs = tr.findall(qn("w:tc"))
+        for i, tc in enumerate(tcs):
+            if i >= len(widths):
+                break
+            tcPr = tc.find(qn("w:tcPr"))
+            if tcPr is None:
+                tcPr = OxmlElement("w:tcPr")
+                tc.insert(0, tcPr)
+            tcW = tcPr.find(qn("w:tcW"))
+            if tcW is None:
+                tcW = OxmlElement("w:tcW")
+                tcPr.insert(0, tcW)
+            tcW.set(qn("w:w"), str(widths[i]))
+            tcW.set(qn("w:type"), "dxa")
+            _set_cell_white(tc)
+
+
 def _add_table(document, proto: Prototypes, caption: str, n: int, headers: list[str], rows: list[list[str]], template: str) -> None:
     if proto.table is None:
         raise ComposeError("В эталоне нет образца таблицы")
@@ -351,6 +472,8 @@ def _add_table(document, proto: Prototypes, caption: str, n: int, headers: list[
         for c_idx, value in enumerate(row):
             if c_idx < len(tcs):
                 _set_cell_text(tcs[c_idx], value)
+    ncols = max((len(headers) if headers else 0), max((len(r) for r in rows), default=0), 1)
+    _fit_table_width(tbl, _content_dxa(document), ncols)
     _insert_before_sect(document, tbl)
 
 
@@ -379,18 +502,20 @@ def replace_body(
     if needs_tbl and proto.table is None:
         raise ComposeError("В эталоне нет образца таблицы")
     _clear_from(document.element.body, start)
+    _add_cloned(
+        document,
+        _first_elem(proto.h1_center_p, proto.h1_p),
+        "СОДЕРЖАНИЕ",
+        proto.heading_styles.get(1) or proto.body_style,
+    )
+    _insert_toc_field(document)
     fig_n = 0
     tbl_n = 0
     for block in blocks:
+        if block.kind == "heading" and block.text.strip().upper() in {"СОДЕРЖАНИЕ", "CONTENTS"}:
+            continue
         if block.kind == "heading":
-            if block.level == 1 and block.text.strip().upper() in {"СОДЕРЖАНИЕ", "CONTENTS"}:
-                _add_cloned(
-                    document,
-                    _first_elem(proto.h1_center_p, proto.h1_p),
-                    block.text,
-                    proto.heading_styles.get(1) or proto.body_style,
-                )
-            elif block.level >= 2:
+            if block.level >= 2:
                 _add_cloned(
                     document,
                     _first_elem(proto.h2_p, proto.h1_p),
@@ -405,11 +530,21 @@ def replace_body(
                     proto.heading_styles.get(1) or proto.body_style,
                 )
         elif block.kind == "dash":
-            _add_cloned(document, _first_elem(proto.dash_p, proto.body_p), block.text, proto.body_style)
+            _add_cloned(document, proto.body_p, block.text, proto.body_style)
         elif block.kind == "paragraph":
+            if _is_toc_line(block.text):
+                continue
             _add_cloned(document, proto.body_p, block.text, proto.body_style)
         elif block.kind == "figure":
             fig_n += 1
+            body_el = document.element.body
+            prev = None
+            for child in list(body_el):
+                if child.tag == qn("w:sectPr"):
+                    break
+                prev = child
+            if prev is not None and prev.tag == qn("w:p"):
+                _keep_next(prev)
             append_cloned_figure(
                 document,
                 proto.figure_p,
@@ -420,6 +555,9 @@ def replace_body(
                 title_fields.figure_caption,
                 proto.max_width_emu,
             )
+            paras = [c for c in document.element.body if c.tag == qn("w:p")]
+            if len(paras) >= 2:
+                _keep_next(paras[-2])
         elif block.kind == "table":
             tbl_n += 1
             _add_table(

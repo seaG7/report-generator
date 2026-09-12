@@ -13,17 +13,26 @@ WP_EXTENT = "{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDra
 A_EXT = "{http://schemas.openxmlformats.org/drawingml/2006/main}ext"
 
 
-def image_extent_emus(png_path: Path, max_width_emu: int) -> tuple[int, int]:
+MAX_FIGURE_HEIGHT_EMU = 3_420_000  # ~9.5 cm, so intro + figure + caption fit one page
+
+
+def image_extent_emus(
+    png_path: Path,
+    max_width_emu: int,
+    max_height_emu: int = MAX_FIGURE_HEIGHT_EMU,
+) -> tuple[int, int]:
     with Image.open(png_path) as im:
         w, h = im.size
     if w <= 0:
-        return max_width_emu, max_width_emu
-    if max_width_emu > 0:
-        cx = max_width_emu
-        cy = int(h / w * cx)
-        return cx, cy
-    cx = int(w / 96 * EMU_PER_INCH)
-    cy = int(h / 96 * EMU_PER_INCH)
+        return max(max_width_emu, 1), max(max_height_emu, 1)
+    cx = max_width_emu if max_width_emu > 0 else int(w / 96 * EMU_PER_INCH)
+    cy = int(h / w * cx)
+    if max_height_emu > 0 and cy > max_height_emu:
+        cy = max_height_emu
+        cx = int(w / h * cy)
+        if max_width_emu > 0 and cx > max_width_emu:
+            cx = max_width_emu
+            cy = int(h / w * cx)
     return cx, cy
 
 

@@ -56,9 +56,18 @@ def _docx_to_pdf_word_impl(docx_path: Path, pdf_path: Path) -> None:
     word = win32com.client.DispatchEx("Word.Application")
     word.Visible = False
     word.DisplayAlerts = 0
+    try:
+        word.Options.UpdateLinksAtOpen = False
+    except Exception:
+        pass
     doc = None
     try:
-        doc = word.Documents.Open(str(docx_path.resolve()))
+        doc = word.Documents.Open(
+            str(docx_path.resolve()),
+            False,
+            True,
+            False,
+        )
         doc.ExportAsFixedFormat(str(pdf_path.resolve()), 17)
     finally:
         if doc is not None:
