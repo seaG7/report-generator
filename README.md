@@ -23,8 +23,10 @@ python tools/new_subject.py --slug os
 
 ## Каждая лабораторная
 
-1. Файл задания → `subjects/os/inbox/` (можно просто рядом с `sample.docx`).
+1. Все PDF по работе → `subjects/os/inbox/` (задание, лекции, методички — можно вместе).
 2. В Grok из корня репо: `/report`.
+
+Grok читает каждый PDF и сам отделяет задание от лекций. В новую лабу попадает только задание; лекции складываются в `subjects/os/lectures/` и копируются в папку работы.
 
 Готово: `subjects/os/lab-NN-.../report.docx`.
 
@@ -35,7 +37,7 @@ python tools/new_subject.py --slug os
 | Скрипт | Назначение |
 |---|---|
 | `tools/new_subject.py` | папка предмета + `inbox/` |
-| `tools/pickup.py` | забрать PDF из inbox в новую lab-папку |
+| `tools/pickup.py` | превью inbox PDF; после разбора — claim задания/лекций |
 | `tools/pdf_to_md.py` | PDF → `assignment.md` + картинки |
 | `tools/checklist.py` | чеклист пунктов и рисунков задания |
 | `tools/new_work.py` | папка работы, копия эталона |
