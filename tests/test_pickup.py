@@ -11,35 +11,33 @@ from tools.pickup import (
 )
 
 
-def test_list_pending_finds_inbox_and_loose_pdf(tmp_path: Path):
+def test_list_pending_finds_pdfs_in_subject_not_inside_labs(tmp_path: Path):
     subj = tmp_path / "subjects" / "os"
-    inbox = subj / "inbox"
-    inbox.mkdir(parents=True)
-    (inbox / "lr3-processes.pdf").write_bytes(b"%PDF-inbox")
-    (subj / "extra.pdf").write_bytes(b"%PDF-loose")
+    subj.mkdir(parents=True)
+    (subj / "lr3-processes.pdf").write_bytes(b"%PDF-root")
+    (subj / "lecture.pdf").write_bytes(b"%PDF-lec")
     lab = subj / "lab-01-old"
     lab.mkdir()
     (lab / "assignment.pdf").write_bytes(b"%PDF-already")
     pending = list_pending(tmp_path)
     paths = sorted(p.pdf.name for p in pending)
-    assert paths == ["extra.pdf", "lr3-processes.pdf"]
+    assert paths == ["lecture.pdf", "lr3-processes.pdf"]
     assert {p.subject for p in pending} == {"os"}
 
 
 def test_claim_pending_moves_pdf_into_new_lab(tmp_path: Path):
     subj = tmp_path / "subjects" / "os"
-    inbox = subj / "inbox"
-    inbox.mkdir(parents=True)
+    subj.mkdir(parents=True)
     sample = subj / "sample.docx"
     sample.write_bytes(b"PK-SAMPLE")
     before = hashlib.sha256(sample.read_bytes()).hexdigest()
-    pdf = inbox / "LR-3 processes.pdf"
-    pdf.write_bytes(b"%PDF-inbox")
+    pdf = subj / "LR-3 processes.pdf"
+    pdf.write_bytes(b"%PDF-task")
     pending = list_pending(tmp_path)
     assert len(pending) == 1
     work = claim_pending(pending[0], repo=tmp_path)
     assert work.name.startswith("lab-01-")
-    assert (work / "assignment.pdf").read_bytes() == b"%PDF-inbox"
+    assert (work / "assignment.pdf").read_bytes() == b"%PDF-task"
     assert (work / "report.docx").read_bytes() == b"PK-SAMPLE"
     assert not pdf.exists()
     assert list_pending(tmp_path) == []
@@ -48,9 +46,8 @@ def test_claim_pending_moves_pdf_into_new_lab(tmp_path: Path):
 
 def test_claim_without_sample_raises(tmp_path: Path):
     subj = tmp_path / "subjects" / "os"
-    inbox = subj / "inbox"
-    inbox.mkdir(parents=True)
-    (inbox / "a.pdf").write_bytes(b"%PDF")
+    subj.mkdir(parents=True)
+    (subj / "a.pdf").write_bytes(b"%PDF")
     pending = list_pending(tmp_path)
     with pytest.raises(PickupError, match="Нет эталона"):
         claim_pending(pending[0], repo=tmp_path)
@@ -58,11 +55,10 @@ def test_claim_without_sample_raises(tmp_path: Path):
 
 def test_claim_two_pdfs_increments_lab_number(tmp_path: Path):
     subj = tmp_path / "subjects" / "os"
-    inbox = subj / "inbox"
-    inbox.mkdir(parents=True)
+    subj.mkdir(parents=True)
     (subj / "sample.docx").write_bytes(b"PK")
-    (inbox / "one.pdf").write_bytes(b"%PDF1")
-    (inbox / "two.pdf").write_bytes(b"%PDF2")
+    (subj / "one.pdf").write_bytes(b"%PDF1")
+    (subj / "two.pdf").write_bytes(b"%PDF2")
     pending = list_pending(tmp_path)
     w1 = claim_pending(pending[0], repo=tmp_path)
     w2 = claim_pending(list_pending(tmp_path)[0], repo=tmp_path)
@@ -88,9 +84,8 @@ def _fake_convert(pdf: Path, out_dir: Path) -> _FakeConvert:
 
 def test_preview_pending_does_not_move_pdfs(tmp_path: Path):
     subj = tmp_path / "subjects" / "os"
-    inbox = subj / "inbox"
-    inbox.mkdir(parents=True)
-    pdf = inbox / "task.pdf"
+    subj.mkdir(parents=True)
+    pdf = subj / "task.pdf"
     pdf.write_bytes(b"%PDF")
     previews = preview_pending(tmp_path, convert=_fake_convert)
     assert len(previews) == 1
@@ -101,40 +96,39 @@ def test_preview_pending_does_not_move_pdfs(tmp_path: Path):
     assert list_pending(tmp_path)[0].pdf == pdf
 
 
-def test_claim_bundle_keeps_lectures_out_of_new_labs(tmp_path: Path):
+def test_claim_bundle_moves_all_pdfs_into_the_lab_flat(tmp_path: Path):
     subj = tmp_path / "subjects" / "os"
-    inbox = subj / "inbox"
-    inbox.mkdir(parents=True)
+    subj.mkdir(parents=True)
     (subj / "sample.docx").write_bytes(b"PK")
-    task = inbox / "lab-3.pdf"
-    lec = inbox / "lecture-05.pdf"
-    extra = inbox / "syllabus.pdf"
+    task = subj / "lab-3.pdf"
+    lec = subj / "lecture-05.pdf"
+    extra = subj / "syllabus.pdf"
     task.write_bytes(b"%PDF-task")
     lec.write_bytes(b"%PDF-lec")
     extra.write_bytes(b"%PDF-syl")
     work = claim_bundle(
         "os",
         assignment_pdfs=[task],
-        lecture_pdfs=[lec],
-        other_pdfs=[extra],
+        context_pdfs=[lec, extra],
         repo=tmp_path,
     )
     assert work.name.startswith("lab-01-")
     assert (work / "assignment.pdf").read_bytes() == b"%PDF-task"
-    assert (subj / "lectures" / "lecture-05.pdf").read_bytes() == b"%PDF-lec"
-    assert (work / "lectures" / "lecture-05.pdf").is_file()
-    assert (subj / "materials" / "syllabus.pdf").read_bytes() == b"%PDF-syl"
+    assert (work / "lecture-05.pdf").read_bytes() == b"%PDF-lec"
+    assert (work / "syllabus.pdf").read_bytes() == b"%PDF-syl"
+    assert not (subj / "lectures").exists()
+    assert not (subj / "materials").exists()
+    assert not (subj / "inbox").exists()
     assert not task.exists() and not lec.exists() and not extra.exists()
     assert list_pending(tmp_path) == []
 
 
 def test_claim_bundle_two_assignment_parts_one_lab(tmp_path: Path):
     subj = tmp_path / "subjects" / "os"
-    inbox = subj / "inbox"
-    inbox.mkdir(parents=True)
+    subj.mkdir(parents=True)
     (subj / "sample.docx").write_bytes(b"PK")
-    a1 = inbox / "part1.pdf"
-    a2 = inbox / "part2.pdf"
+    a1 = subj / "part1.pdf"
+    a2 = subj / "part2.pdf"
     a1.write_bytes(b"%PDF1")
     a2.write_bytes(b"%PDF2")
     work = claim_bundle("os", assignment_pdfs=[a1, a2], repo=tmp_path)

@@ -45,12 +45,12 @@ def list_pending(repo: Path | None = None) -> list[Pending]:
     for subj in sorted(subjects.iterdir()):
         if not subj.is_dir() or subj.name.startswith("."):
             continue
+        for pdf in sorted(subj.glob("*.pdf")):
+            if pdf.parent == subj:
+                pending.append(Pending(subject=subj.name, pdf=pdf))
         inbox = subj / "inbox"
         if inbox.is_dir():
             for pdf in sorted(inbox.glob("*.pdf")):
-                pending.append(Pending(subject=subj.name, pdf=pdf))
-        for pdf in sorted(subj.glob("*.pdf")):
-            if pdf.parent == subj:
                 pending.append(Pending(subject=subj.name, pdf=pdf))
     return pending
 
@@ -91,6 +91,7 @@ def _move_to(src: Path, dest: Path) -> None:
 def claim_bundle(
     subject: str,
     assignment_pdfs: list[Path],
+    context_pdfs: list[Path] | None = None,
     lecture_pdfs: list[Path] | None = None,
     other_pdfs: list[Path] | None = None,
     *,
@@ -98,8 +99,9 @@ def claim_bundle(
     repo: Path | None = None,
 ) -> Path:
     assignment_pdfs = [Path(p) for p in assignment_pdfs]
-    lecture_pdfs = [Path(p) for p in (lecture_pdfs or [])]
-    other_pdfs = [Path(p) for p in (other_pdfs or [])]
+    context_pdfs = [Path(p) for p in (context_pdfs or [])]
+    context_pdfs.extend(Path(p) for p in (lecture_pdfs or []))
+    context_pdfs.extend(Path(p) for p in (other_pdfs or []))
     if not assignment_pdfs:
         raise PickupError("Нет PDF задания")
     root = Path(repo) if repo is not None else repo_root()
@@ -117,15 +119,16 @@ def claim_bundle(
     for i, pdf in enumerate(assignment_pdfs[1:], start=2):
         dest = work / f"assignment-{i:02d}-{slug_from_filename(pdf.name)}.pdf"
         _move_to(pdf, dest)
-    subject_dir = root / "subjects" / subject
-    for pdf in lecture_pdfs:
-        dest_subj = subject_dir / "lectures" / pdf.name
-        _move_to(pdf, dest_subj)
-        lab_lec = work / "lectures" / pdf.name
-        lab_lec.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(dest_subj, lab_lec)
-    for pdf in other_pdfs:
-        _move_to(pdf, subject_dir / "materials" / pdf.name)
+    seen: set[Path] = set()
+    for pdf in context_pdfs:
+        resolved = pdf.resolve()
+        if resolved in seen or not pdf.exists():
+            continue
+        seen.add(resolved)
+        dest = work / pdf.name
+        if dest.resolve() == resolved:
+            continue
+        _move_to(pdf, dest)
     return work
 
 
@@ -137,6 +140,7 @@ def main() -> int:
     p.add_argument("--claim", action="store_true")
     p.add_argument("--subject")
     p.add_argument("--assignment", action="append", default=[])
+    p.add_argument("--context", action="append", default=[])
     p.add_argument("--lecture", action="append", default=[])
     p.add_argument("--other", action="append", default=[])
     args = p.parse_args()
@@ -146,11 +150,11 @@ def main() -> int:
             if not args.subject or not args.assignment:
                 print("Для --claim нужны --subject и хотя бы один --assignment", file=sys.stderr)
                 return 1
+            context = list(args.context) + list(args.lecture) + list(args.other)
             work = claim_bundle(
                 args.subject,
                 [Path(x) for x in args.assignment],
-                [Path(x) for x in args.lecture],
-                [Path(x) for x in args.other],
+                [Path(x) for x in context],
                 repo=repo,
             )
             print(work)
@@ -161,7 +165,7 @@ def main() -> int:
         return 1
     if not previews:
         print(
-            "Нет PDF. Положите задание и при необходимости лекции в subjects/<предмет>/inbox/",
+            "Нет PDF. Положите файлы в subjects/<предмет>/ рядом с sample.docx",
             file=sys.stderr,
         )
         return 2

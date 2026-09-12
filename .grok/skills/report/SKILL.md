@@ -1,82 +1,75 @@
 ---
 name: report
-description: Run the full lab-report factory. Drop PDFs into subjects/<slug>/inbox/ then /report. Inbox may mix assignment, lectures, and other materials. Use when the user wants a lab report, лабораторная, сделай отчёт, or has PDFs in a subject inbox.
+description: Run the lab-report factory. User dumps PDFs into subjects/<slug>/ (assignment mixed with lectures) then /report. Use when the user wants a lab report, лабораторная, сделай отчёт, or has PDFs in a subject folder.
 ---
 
 # Фабрика отчёта
 
-Команды из корня репо. Эталон `subjects/<subject>/sample.docx` не писать. Word не собирать с нуля и не через Composio.
+Команды из корня репо. Эталон `sample.docx` не писать. Word не собирать с нуля и не через Composio.
 
-Пользователь **не прикладывает PDF в чат**. В `subjects/<предмет>/inbox/` (или рядом с `sample.docx`) может лежать **несколько** PDF: задание, лекции, слайды, методичка.
+Пользователь **не сортирует файлы и не прикладывает PDF в чат**. Всё лежит прямо в `subjects/<предмет>/`: задание, лекции, слайды — одним ворохом.
 
-## 0. Превью всех PDF — не создавать лабу сразу
+Не создавать inbox/lectures/materials. Не просить разложить PDF по папкам.
 
-Если нет `student.yaml` — скопировать из `student.yaml.example` и остановиться, пока не заполнят ФИО.
+## 0. Превью
+
+Нет `student.yaml` — скопировать из `student.yaml.example`, остановиться пока не заполнят ФИО.
 
 ```
 python tools/pickup.py --preview --json
 ```
 
-- код 0 — JSON: `[{subject, pdf, md}, ...]` на **каждый** PDF, файлы на месте не трогаются
-- код 2 — PDF нет: положить в `subjects/<предмет>/inbox/` (`python tools/new_subject.py --slug <slug>`)
-- код 1 — ошибка конвертации
+- код 0 — JSON `[{subject, pdf, md}, ...]` на каждый PDF **в корне предмета** (не внутри `lab-*`)
+- код 2 — PDF нет: «положите файлы в subjects/<предмет>/»
+- код 1 — ошибка
 
-Прочитать **каждый** `md` целиком (и картинки в той же папке превью). Классифицировать по содержанию, не по имени файла:
+Прочитать каждый `md` целиком и картинки. По содержанию, не по имени:
 
-- `assignment` — лабораторная/практика/контрольная: «выполнить», варианты, цели работы, ход работы, задания по пунктам
-- `lecture` — лекция, конспект, теория, слайды курса без требования сдать работу
-- `other` — силлабус, методичка, правила оформления, чужой пример не как эталон Word
+- задание: лабораторная/практика, «выполнить», варианты, цель/ход работы
+- контекст: лекция, конспект, слайды, методичка — пригодится при выполнении, но это не сама работа
 
-Несколько PDF задания (часть 1 и 2, два файла одного варианта) — **одна** лаба, все в `--assignment`. Две независимые лабораторные — два `--claim`. Лекции не превращать в отдельные lab-папки.
+Несколько файлов одного задания (часть 1 и 2) — одна лаба, все в `--assignment`. Две разные лабораторные — два `--claim`. Контекст не делать отдельной lab-папкой.
 
-Нет `title-fields.yaml` или `confirmed` не true — онбординг эталона, лабу не выполнять.
-
-Затем:
+Нет `title-fields.yaml` / `confirmed` — онбординг эталона, работу не начинать.
 
 ```
-python tools/pickup.py --claim --subject S --assignment "<pdf-задания>" [--assignment "<часть-2.pdf>"] [--lecture "<лекция.pdf>"] [--other "<методичка.pdf>"]
+python tools/pickup.py --claim --subject S --assignment "<задание.pdf>" [--assignment "<часть-2.pdf>"] [--context "<лекция.pdf>"] [--context "<ещё.pdf>"]
 ```
 
-Повторить `--claim`, если в inbox два разных задания. Лекции окажутся в `subjects/<S>/lectures/` и в `<work>/lectures/`.
+Все эти PDF окажутся **плоско** в папке работы (без подпапок типа lectures/). Корень предмета снова пустой от PDF — следующую работу снова кидают туда же.
 
 ## 1. Ingest
-
-Для каждого PDF задания в папке работы (`assignment.pdf`, `assignment-02-*.pdf`):
 
 ```
 python tools/pdf_to_md.py "<work>/assignment.pdf" --out "<work>"
 python tools/checklist.py "<work>/assignment.md" --out "<work>/work/checklist.md"
 ```
 
-Доп. части задания — тоже в MD (`assignment-02.md`) и **добавить** пункты в тот же чеклист, ничего не отбрасывая.
-
-Каждую лекцию:
+Доп. части задания — в MD и в тот же чеклист. Каждый контекстный PDF:
 
 ```
-python tools/pdf_to_md.py "<work>/lectures/<file>.pdf" --out "<work>/lectures/<stem>"
+python tools/pdf_to_md.py "<work>/<файл>.pdf" --out "<work>/.context/<stem>"
 ```
 
-Читать лекции как контекст. Чеклист и отчёт — только по **заданию**. Открыть все картинки задания.
+Чеклист и отчёт — по заданию. Контекст читать и использовать. Картинки задания открыть все.
 
 ## 2. Выполнить всё задание
 
-Закрыть каждый пункт чеклиста. Нельзя сдать отчёт, пока в `checklist.md` есть `- [ ]`.
+Пока в `checklist.md` есть `- [ ]` — отчёт не готов.
 
-Контекст: текст, списки, таблицы, подписи, изображения задания; лекции — опора, не замена пунктов.
+Нет инструмента:
 
-Инструменты, если нужного софта нет:
+1. MCP `search_tool`
+2. Composio connect
+3. GitHub/CLI (`web_search`)
+4. Не писать «не могу, нет Postman»
 
-1. MCP: `search_tool`.
-2. Composio: `COMPOSIO_SEARCH_TOOLS` / `COMPOSIO_MANAGE_CONNECTIONS`.
-3. GitHub/CLI (`web_search`): Newman, httpie, k6 и т.п. Поставить и использовать.
-4. Не писать «не могу, нет Postman/MCP».
+Скриншоты: `screenshot.py` / `diagram.py`, осмотр, `--mark-ok`. Mermaid вместо image generation, если хватает.
 
-Скриншоты: `screenshot.py` / `diagram.py`, осмотр PNG, `--mark-ok`. Mermaid вместо image generation, если хватает.
-
-`work.yaml` + `report.md` по структуре эталона.
+`work.yaml` + `report.md` по эталону.
 
 ## 3–4. Сборка
 
-Скилл `build-report`. Максимум 3 цикла осмотра preview. Готово: `<work>/report.docx`.
+Скилл `build-report`. Максимум 3 цикла preview. Готово: `<work>/report.docx`.
 
-Сломанная копия: `python tools/new_work.py --subject S --slug SLUG --number N --reset-docx`.
+Сброс копии: `python tools/new_work.py --subject S --slug SLUG --number N --reset-docx`.

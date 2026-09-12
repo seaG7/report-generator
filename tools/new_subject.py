@@ -22,11 +22,6 @@ def new_subject(slug: str, repo: Path | None = None) -> Path:
     root = Path(repo) if repo is not None else repo_root()
     dest = root / "subjects" / slug
     dest.mkdir(parents=True, exist_ok=True)
-    inbox = dest / "inbox"
-    inbox.mkdir(exist_ok=True)
-    gitkeep = inbox / ".gitkeep"
-    if not gitkeep.is_file():
-        gitkeep.write_text("", encoding="utf-8")
     return dest
 
 
