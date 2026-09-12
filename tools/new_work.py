@@ -33,6 +33,7 @@ def create_work(
     *,
     number: int | None = None,
     reset_docx: bool = False,
+    move_pdf: bool = False,
     repo: Path | None = None,
 ) -> Path:
     root = Path(repo) if repo is not None else repo_root()
@@ -50,7 +51,10 @@ def create_work(
     if pdf is not None:
         target_pdf = work / "assignment.pdf"
         if not target_pdf.is_file():
-            shutil.copy2(pdf, target_pdf)
+            if move_pdf:
+                shutil.move(str(pdf), str(target_pdf))
+            else:
+                shutil.copy2(pdf, target_pdf)
     return work
 
 

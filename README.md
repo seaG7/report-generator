@@ -1,35 +1,48 @@
 # Фабрика учебных отчётов
 
-Локальный конвейер для Grok: PDF задания → Markdown с картинками → выполнение работы со скриншотами → `.docx` **правкой копии эталона** (титульник и стили не собираются с нуля).
+Кидаете PDF в папку предмета, в чате пишете `/report` — Grok делает работу и собирает Word копией эталона.
 
-## Установка
+## Один раз
 
 ```
 pip install -r requirements.txt
+copy student.yaml.example student.yaml
 ```
 
-Скопируйте `student.yaml.example` в `student.yaml` и заполните ФИО/группу.
+Заполните ФИО и группу в `student.yaml`.
 
-Для проверки вёрстки нужен Microsoft Word (предпочтительно на Windows) или LibreOffice. Для диаграмм — Node.js (`npx @mermaid-js/mermaid-cli`).
+Для каждого предмета:
 
-## Как пользоваться
+```
+python tools/new_subject.py --slug os
+```
 
-1. Положите эталон другой работы: `subjects/<предмет>/sample.docx`.
-2. В чате Grok из корня репозитория: `/report` и PDF задания (для нового предмета Grok предложит `title-fields.yaml` — подтвердите).
-3. Готовый файл: `subjects/<предмет>/lab-NN-<slug>/report.docx`.
+Положите эталон другой работы: `subjects/os/sample.docx`.
 
-Не редактируйте эталон. Сломанную копию пересоберите: `python tools/new_work.py --subject S --slug SLUG --number N --reset-docx`.
+Для проверки вёрстки нужен Word или LibreOffice. Для диаграмм — Node.js.
+
+## Каждая лабораторная
+
+1. Файл задания → `subjects/os/inbox/` (можно просто рядом с `sample.docx`).
+2. В Grok из корня репо: `/report`.
+
+Готово: `subjects/os/lab-NN-.../report.docx`.
+
+Первый раз по предмету Grok покажет поля титульника — подтвердите. Дальше не спрашивает.
 
 ## Скрипты
 
 | Скрипт | Назначение |
 |---|---|
-| `tools/pdf_to_md.py` | PDF → `assignment.md` + `images/` |
+| `tools/new_subject.py` | папка предмета + `inbox/` |
+| `tools/pickup.py` | забрать PDF из inbox в новую lab-папку |
+| `tools/pdf_to_md.py` | PDF → `assignment.md` + картинки |
+| `tools/checklist.py` | чеклист пунктов и рисунков задания |
 | `tools/new_work.py` | папка работы, копия эталона |
-| `tools/patch_title.py` | замена ФИО/группы/темы на титульнике |
-| `tools/replace_body.py` | тело отчёта клонами блоков эталона |
-| `tools/screenshot.py` | PNG + `manifest.json` |
+| `tools/patch_title.py` | ФИО/группа/тема на титульнике |
+| `tools/replace_body.py` | тело отчёта клонами блоков |
+| `tools/screenshot.py` | PNG + манифест |
 | `tools/diagram.py` | Mermaid → PNG |
-| `tools/render_docx.py` | страницы отчёта → PNG |
+| `tools/render_docx.py` | страницы → PNG |
 
 Спека: `docs/superpowers/specs/2026-09-11-report-factory-design.md`.

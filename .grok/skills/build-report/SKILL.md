@@ -5,7 +5,7 @@ description: Patch title fields and replace body of a copied sample.docx, then r
 
 # Сборка report.docx
 
-Preconditions: `title-fields.yaml` has `confirmed: true`; `work.yaml` exists; `report.md` exists; every `screenshots/` image referenced in `report.md` has `ok: true` in `manifest.json`.
+Preconditions: `title-fields.yaml` has `confirmed: true`; `work.yaml` exists; `report.md` exists; `work/checklist.md` has no unchecked `- [ ]` items; every `screenshots/` image referenced in `report.md` has `ok: true` in `manifest.json`. Do not compose if any assignment checklist item is still open.
 
 ```
 python tools/patch_title.py --docx "<work>/report.docx" --title-fields "subjects/<subject>/title-fields.yaml" --student student.yaml --work "<work>/work.yaml"

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -46,7 +48,7 @@ def soffice_available() -> bool:
     return _soffice_bin() is not None
 
 
-def _docx_to_pdf_word(docx_path: Path, pdf_path: Path) -> None:
+def _docx_to_pdf_word_impl(docx_path: Path, pdf_path: Path) -> None:
     import pythoncom
     import win32com.client
 
@@ -69,6 +71,32 @@ def _docx_to_pdf_word(docx_path: Path, pdf_path: Path) -> None:
         except Exception:
             pass
         pythoncom.CoUninitialize()
+
+
+def _docx_to_pdf_word(docx_path: Path, pdf_path: Path) -> None:
+    if os.environ.get("_REPORT_WORD_WORKER") == "1":
+        _docx_to_pdf_word_impl(docx_path, pdf_path)
+        return
+    env = os.environ.copy()
+    env["_REPORT_WORD_WORKER"] = "1"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "tools.render_docx",
+            "--word-export",
+            str(docx_path),
+            str(pdf_path),
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if not Path(pdf_path).is_file():
+        detail = (proc.stderr or proc.stdout or "").strip()
+        raise RenderUnavailable(detail or "Word не смог сконвертировать документ")
 
 
 def _docx_to_pdf_soffice(docx_path: Path, out_dir: Path) -> Path:
@@ -128,6 +156,13 @@ def render_docx(docx_path: Path, out_dir: Path) -> list[Path]:
 
 
 def main() -> int:
+    if len(sys.argv) >= 4 and sys.argv[1] == "--word-export":
+        try:
+            _docx_to_pdf_word_impl(Path(sys.argv[2]), Path(sys.argv[3]))
+        except Exception as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        return 0
     p = argparse.ArgumentParser()
     p.add_argument("docx")
     p.add_argument("--out-dir", required=True)

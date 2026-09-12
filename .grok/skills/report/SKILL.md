@@ -1,59 +1,60 @@
 ---
 name: report
-description: Run the full lab-report factory from assignment PDF plus subject sample.docx to a verified report.docx. Use when the user wants a lab report, /report, лабораторная, сделай отчёт, or attaches an assignment PDF with a formatted sample.
+description: Run the full lab-report factory. Drop the assignment PDF into subjects/<slug>/inbox/ then /report. Use when the user wants a lab report, лабораторная, сделай отчёт, or has a PDF in a subject inbox.
 ---
 
 # Фабрика отчёта
 
-Follow `docs/superpowers/specs/2026-09-11-report-factory-design.md`. Commands from repo root. Never write `subjects/<subject>/sample.docx`. Never build Word via Composio or `Document()` from scratch.
+Команды из корня репо. Эталон `subjects/<subject>/sample.docx` не писать. Word не собирать с нуля и не через Composio.
 
-## 0. Старт
+Пользователь **не прикладывает PDF в чат**. Файл лежит в `subjects/<предмет>/inbox/` или рядом с `sample.docx`.
 
-1. If `student.yaml` is missing, stop: copy `student.yaml.example` → `student.yaml` and ask the user to fill it.
-2. Resolve subject (argument, cwd under `subjects/<slug>/`, or one question).
-3. If `subjects/<subject>/sample.docx` is missing, stop: need a formatted sample of another work in this discipline.
-4. If `title-fields.yaml` is missing or `confirmed` is not true — onboarding only, do not execute the lab:
-   - Render the sample for reading only: `python tools/render_docx.py "subjects/<subject>/sample.docx" --out-dir <tmp>/preview`
-   - Read `page-01.png` and title text. Propose `find` strings, `body_start`, `figure_caption`, `table_caption`.
-   - Wait for user confirmation, then write `title-fields.yaml` with `confirmed: true`.
-5. `python tools/new_work.py --subject S --slug SLUG [--pdf PDF] [--number N]`
+## 0. Подхватить PDF
 
-Rebuild a ruined copy: `python tools/new_work.py --subject S --slug SLUG --number N --reset-docx` (does not wipe `work/` or `report.md`).
+Если нет `student.yaml` — скопировать из `student.yaml.example` и остановиться, пока не заполнят ФИО.
+
+```
+python tools/pickup.py
+```
+
+- код 0 — по одной строке путь к каждой новой `lab-NN-...`
+- код 2 — PDF нет: сказать положить в `subjects/<предмет>/inbox/` (создать предмет: `python tools/new_subject.py --slug <slug>`)
+- код 1 — нет эталона: нужен `subjects/<предмет>/sample.docx`
+
+Нет `title-fields.yaml` или `confirmed` не true — онбординг: рендер эталона только на чтение, предложить поля, дождаться подтверждения, записать `confirmed: true`. Лабу не выполнять до этого.
+
+Дальше для **каждой** папки из pickup.
 
 ## 1. Ingest
 
-`python tools/pdf_to_md.py "<assignment.pdf>" --out "<work-dir>"`
-
-Read `assignment.md`. Do not invent missing PDF figures.
-
-## 2. Execute
-
-Do the assignment in `<work-dir>/work/`.
-
-Screenshots:
-
 ```
-python tools/screenshot.py --from-file IMG --out-dir "<work>/screenshots" --caption "..." --source browser|terminal|ide --slug slug
-python tools/screenshot.py --capture --out-dir "<work>/screenshots" --caption "..." --source ide --slug slug
+python tools/pdf_to_md.py "<work>/assignment.pdf" --out "<work>"
+python tools/checklist.py "<work>/assignment.md" --out "<work>/work/checklist.md"
 ```
 
-Diagrams: write `work/diagrams/<name>.mmd`, then
+Прочитать `assignment.md` **целиком**. Открыть каждую картинку из `images/`. Чеклист — обязательные пункты; не вычёркивать то, чего не сделали.
 
-```
-python tools/diagram.py "<work>/work/diagrams/<name>.mmd"
-python tools/screenshot.py --from-file PNG --out-dir "<work>/screenshots" --caption "..." --source diagram --slug slug
-```
+Не выдумывать рисунки, которых нет в извлечении.
 
-Do not use image generation for flowcharts, sequences, or architecture if Mermaid can draw them.
+## 2. Выполнить всё задание
 
-Open every PNG, check it against the assignment, then:
+Закрыть каждый пункт чеклиста. Нельзя сдать отчёт, пока в `checklist.md` есть `- [ ]`.
 
-```
-python tools/screenshot.py --mark-ok FILE.png --out-dir "<work>/screenshots"
-```
+Контекст: текст, нумерованные списки, буллеты, таблицы, подписи и изображения из PDF. Если картинка в задании — она часть требования.
 
-Never set `ok` without looking. Write `work.yaml` and `report.md` (same section structure as the sample; `![caption](screenshots/...)`; `Таблица: ...` before a GFM table).
+Инструменты, если в задании нужен софт, которого нет под рукой:
 
-## 3–4. Compose and verify
+1. Сначала MCP: `search_tool` по имени (Postman, браузер, git, …) и вызвать найденное.
+2. Нет коннекта — Composio: `COMPOSIO_SEARCH_TOOLS`, при необходимости `COMPOSIO_MANAGE_CONNECTIONS` (дать пользователю ссылку, дождаться ACTIVE).
+3. Нет MCP — найти готовое на GitHub (`web_search` / GitHub): CLI вроде Newman для Postman-коллекций, httpie, k6, и т.п. Поставить и использовать.
+4. Не писать «не могу, нет Postman/MCP». Либо подключить, либо эквивалент.
 
-Follow the `build-report` skill. Max 3 inspect/fix loops. Ready artifact: `<work>/report.docx` after a passing page inspect.
+Скриншоты и диаграммы — как раньше (`screenshot.py`, `diagram.py`, осмотр PNG, `--mark-ok`). Mermaid вместо image generation, если хватает.
+
+`work.yaml` + `report.md` по структуре эталона. В отчёт входят все пункты чеклиста.
+
+## 3–4. Сборка
+
+Скилл `build-report`. Максимум 3 цикла осмотра preview. Готово: `<work>/report.docx`.
+
+Сломанная копия: `python tools/new_work.py --subject S --slug SLUG --number N --reset-docx`.

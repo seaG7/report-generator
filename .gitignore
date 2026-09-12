@@ -1,4 +1,5 @@
 student.yaml
+subjects/**/inbox/*.pdf
 subjects/**/work/
 subjects/**/screenshots/
 subjects/**/preview/
