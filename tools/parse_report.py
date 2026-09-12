@@ -19,6 +19,7 @@ class Block:
 _IMG = re.compile(r"^!\[([^\]]*)\]\(([^)]+)\)\s*$")
 _TABLE_CAPTION = re.compile(r"^Таблица:\s*(.+)\s*$")
 _HEADING = re.compile(r"^(#{1,3})\s+(.+?)\s*$")
+_DASH = re.compile(r"^[–—\-]\s+(.+?)\s*$")
 
 
 def _split_row(line: str) -> list[str]:
@@ -67,6 +68,12 @@ def parse_report_md(text: str) -> list[Block]:
         if m_h:
             flush_para()
             blocks.append(Block(kind="heading", text=m_h.group(2), level=len(m_h.group(1))))
+            i += 1
+            continue
+        m_dash = _DASH.match(line.strip())
+        if m_dash:
+            flush_para()
+            blocks.append(Block(kind="dash", text="– " + m_dash.group(1)))
             i += 1
             continue
         m_img = _IMG.match(line.strip())

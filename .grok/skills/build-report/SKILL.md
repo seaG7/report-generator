@@ -13,4 +13,4 @@ python tools/replace_body.py --docx "<work>/report.docx" --md "<work>/report.md"
 python tools/render_docx.py "<work>/report.docx" --out-dir "<work>/preview"
 ```
 
-Never write `sample.docx`. Never create a Word document from scratch. After render, open every `preview/page-*.png` and inspect title, figures, tables. On failure, fix the copy and re-render. After 3 failed inspect loops, stop and list defects. Do not declare the report ready without a passing inspect.
+Never write `sample.docx`. Never create a Word document from scratch. After render, open every `preview/page-*.png` and inspect against the sample: title intact; body first-line indent and justify; figure captions size/bold/center like sample; images full text width; no invented list formatting. On failure, fix the copy and re-render. After 3 failed inspect loops, stop and list defects. Do not declare the report ready without a passing inspect.

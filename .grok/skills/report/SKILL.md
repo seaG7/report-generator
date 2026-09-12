@@ -64,7 +64,11 @@ python tools/pdf_to_md.py "<work>/<файл>.pdf" --out "<work>/.context/<stem>"
 3. GitHub/CLI (`web_search`)
 4. Не писать «не могу, нет Postman»
 
-Скриншоты: `screenshot.py` / `diagram.py`, осмотр, `--mark-ok`. Mermaid вместо image generation, если хватает.
+Скриншоты. Страницы открывать в изолированном контексте (`new_page` + `isolatedContext: "report"` — как инкогнито). После загрузки **до снимка** закрыть всплывашки: `evaluate_script` со скриптом из `tools/dismiss_popups.py` (`dismiss_script()`). База: cookie («Принять все», Allow all, Allow essential). Пока попап перекрывает контент — скрин не годится. Затем `screenshot.py --from-file`, осмотр, `--mark-ok`.
+
+Текст `report.md` как в sample: обычные абзацы (красная строка, по ширине). Списки только если в sample такие же — там это абзацы с «– » и левым отступом, не маркированный список Word. Иначе связный текст. Рисунки по ширине полосы набора, подпись как в sample (кегль 12pt, жирный, по центру).
+
+Mermaid вместо image generation, если хватает.
 
 `work.yaml` + `report.md` по эталону.
 

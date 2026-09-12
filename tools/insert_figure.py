@@ -16,12 +16,14 @@ A_EXT = "{http://schemas.openxmlformats.org/drawingml/2006/main}ext"
 def image_extent_emus(png_path: Path, max_width_emu: int) -> tuple[int, int]:
     with Image.open(png_path) as im:
         w, h = im.size
+    if w <= 0:
+        return max_width_emu, max_width_emu
+    if max_width_emu > 0:
+        cx = max_width_emu
+        cy = int(h / w * cx)
+        return cx, cy
     cx = int(w / 96 * EMU_PER_INCH)
     cy = int(h / 96 * EMU_PER_INCH)
-    if cx > max_width_emu > 0:
-        scale = max_width_emu / cx
-        cx = max_width_emu
-        cy = int(cy * scale)
     return cx, cy
 
 

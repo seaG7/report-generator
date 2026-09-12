@@ -1,8 +1,8 @@
 from pathlib import Path
 from PIL import Image
 from docx import Document
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Inches
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
+from docx.shared import Cm, Inches, Pt
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
@@ -38,12 +38,23 @@ def make_sample_docx(path: Path, image: Path | None = None) -> None:
     doc.add_paragraph("ИКБО-00-00")
     doc.add_paragraph("Лабораторная работа №1. Пример")
     doc.add_page_break()
-    doc.add_heading("Цель работы", level=1)
-    doc.add_paragraph("Текст цели.")
+    h = doc.add_heading("Цель работы", level=1)
+    h.paragraph_format.left_indent = Cm(1.25)
+    body = doc.add_paragraph("Текст цели.")
+    body.paragraph_format.first_line_indent = Cm(1.25)
+    body.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    body.paragraph_format.line_spacing = 1.5
+    dash = doc.add_paragraph("– пункт образца")
+    dash.paragraph_format.left_indent = Cm(1.25)
+    dash.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    dash.paragraph_format.line_spacing = 1.5
     p = doc.add_paragraph()
     p.add_run().add_picture(str(image), width=Inches(1.5))
     cap = doc.add_paragraph("Рисунок 1 – Пример")
     cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    cap_run = cap.runs[0] if cap.runs else cap.add_run("")
+    cap_run.bold = True
+    cap_run.font.size = Pt(12)
     doc.add_paragraph("Таблица 1 – Пример")
     table = doc.add_table(rows=2, cols=2)
     table.style = "Table Grid"

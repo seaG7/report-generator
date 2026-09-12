@@ -27,6 +27,11 @@ class Prototypes:
     figure_caption_p: object | None
     table: object | None
     table_caption_p: object | None
+    body_p: object | None
+    dash_p: object | None
+    h1_p: object | None
+    h1_center_p: object | None
+    h2_p: object | None
     body_style: str
     heading_styles: dict[int, str]
     code_p: object | None
@@ -54,25 +59,96 @@ def _style_names(document) -> set[str]:
     return names
 
 
-def collect_prototypes(document) -> Prototypes:
+WP_EXTENT = "{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}extent"
+_MIN_FIGURE_CX = 1_100_000
+
+
+def _is_toc_line(text: str) -> bool:
+    return "...." in text or text.count(".") >= 10
+
+
+def _p_style_id(p_elem) -> str:
+    pPr = p_elem.find(qn("w:pPr"))
+    if pPr is None:
+        return ""
+    st = pPr.find(qn("w:pStyle"))
+    return st.get(qn("w:val")) if st is not None else ""
+
+
+def _has_jc(p_elem, val: str) -> bool:
+    pPr = p_elem.find(qn("w:pPr"))
+    if pPr is None:
+        return False
+    jc = pPr.find(qn("w:jc"))
+    return jc is not None and jc.get(qn("w:val")) == val
+
+
+def _drawing_cx(p_elem) -> int:
+    ext = p_elem.find(".//" + WP_EXTENT)
+    if ext is None or ext.get("cx") is None:
+        return 0
+    return int(ext.get("cx"))
+
+
+def collect_prototypes(document, start_elem=None) -> Prototypes:
     body = document.element.body
     children = list(body)
     figure_p = None
     figure_caption_p = None
     table = None
     table_caption_p = None
+    body_p = None
+    dash_p = None
+    h1_p = None
+    h1_center_p = None
+    h2_p = None
     prev_p = None
+    started = start_elem is None
     for child in children:
+        if start_elem is not None and child is start_elem:
+            started = True
+        if not started:
+            if child.tag == qn("w:p"):
+                prev_p = child
+            continue
         if child.tag == qn("w:p"):
-            if figure_p is None and child.find(".//" + qn("w:drawing")) is not None:
+            text = _p_text(child).strip()
+            if (
+                figure_p is None
+                and child.find(".//" + qn("w:drawing")) is not None
+                and _drawing_cx(child) >= _MIN_FIGURE_CX
+            ):
                 figure_p = deepcopy(child)
-            elif figure_p is not None and figure_caption_p is None:
+            elif figure_p is not None and figure_caption_p is None and text.startswith("Рисунок"):
                 figure_caption_p = deepcopy(child)
+            style_id = _p_style_id(child)
+            if text.startswith("– ") or text.startswith("— "):
+                if dash_p is None:
+                    dash_p = deepcopy(child)
+            elif style_id in {"1", "Heading1"} and not _is_toc_line(text):
+                if _has_jc(child, "center") and h1_center_p is None:
+                    h1_center_p = deepcopy(child)
+                elif h1_p is None:
+                    h1_p = deepcopy(child)
+            elif style_id in {"2", "Heading2"} and h2_p is None and not _is_toc_line(text):
+                h2_p = deepcopy(child)
+            elif (
+                body_p is None
+                and text
+                and child.find(".//" + qn("w:drawing")) is None
+                and not text.startswith("Рисунок")
+                and not text.startswith("Таблица")
+                and style_id not in {"1", "2", "Heading1", "Heading2"}
+                and not _is_toc_line(text)
+            ):
+                body_p = deepcopy(child)
             prev_p = child
         elif child.tag == qn("w:tbl") and table is None:
             table = deepcopy(child)
             if prev_p is not None and _p_text(prev_p).strip().startswith("Таблица"):
                 table_caption_p = deepcopy(prev_p)
+    if figure_p is not None and figure_caption_p is None:
+        figure_caption_p = deepcopy(body_p) if body_p is not None else None
     names = _style_names(document)
     heading_styles = {}
     for level, name in ((1, "Heading 1"), (2, "Heading 2"), (3, "Heading 3")):
@@ -86,6 +162,11 @@ def collect_prototypes(document) -> Prototypes:
         figure_caption_p=figure_caption_p,
         table=table,
         table_caption_p=table_caption_p,
+        body_p=body_p,
+        dash_p=dash_p,
+        h1_p=h1_p,
+        h1_center_p=h1_center_p,
+        h2_p=h2_p,
         body_style=body_style,
         heading_styles=heading_styles,
         code_p=None,
@@ -152,7 +233,39 @@ def _assert_figure_ok(work_dir: Path, raw: str) -> None:
             raise ComposeError(f"Скриншот не подтверждён: {name}")
 
 
-def _add_paragraph(document, text: str, style: str | None) -> None:
+def _set_cloned_text(p_elem, text: str) -> None:
+    nodes = p_elem.findall(".//" + qn("w:t"))
+    if not nodes:
+        r = OxmlElement("w:r")
+        t = OxmlElement("w:t")
+        t.text = text
+        r.append(t)
+        p_elem.append(r)
+        return
+    nodes[0].text = text
+    if text[:1].isspace() or (text and text[-1:].isspace()):
+        nodes[0].set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+    for node in nodes[1:]:
+        node.text = ""
+
+
+def _first_elem(*elems):
+    for el in elems:
+        if el is not None:
+            return el
+    return None
+
+
+def _add_cloned(document, proto, text: str, fallback_style: str | None) -> None:
+    if proto is None:
+        _add_paragraph_style(document, text, fallback_style)
+        return
+    new_p = deepcopy(proto)
+    _set_cloned_text(new_p, text)
+    _insert_before_sect(document, new_p)
+
+
+def _add_paragraph_style(document, text: str, style: str | None) -> None:
     kwargs = {}
     if style:
         kwargs["style"] = style
@@ -257,23 +370,44 @@ def replace_body(
         if block.kind == "figure":
             _assert_figure_ok(work_dir, block.path)
     document = Document(str(docx_path))
-    proto = collect_prototypes(document)
+    start = _find_body_start(document.element.body, title_fields)
+    proto = collect_prototypes(document, start)
     needs_fig = any(b.kind == "figure" for b in blocks)
     if needs_fig and (proto.figure_p is None or proto.figure_caption_p is None):
         raise ComposeError("В эталоне нет образца рисунка")
     needs_tbl = any(b.kind == "table" for b in blocks)
     if needs_tbl and proto.table is None:
         raise ComposeError("В эталоне нет образца таблицы")
-    start = _find_body_start(document.element.body, title_fields)
     _clear_from(document.element.body, start)
     fig_n = 0
     tbl_n = 0
     for block in blocks:
         if block.kind == "heading":
-            style = proto.heading_styles.get(block.level)
-            _add_paragraph(document, block.text, style or proto.body_style)
+            if block.level == 1 and block.text.strip().upper() in {"СОДЕРЖАНИЕ", "CONTENTS"}:
+                _add_cloned(
+                    document,
+                    _first_elem(proto.h1_center_p, proto.h1_p),
+                    block.text,
+                    proto.heading_styles.get(1) or proto.body_style,
+                )
+            elif block.level >= 2:
+                _add_cloned(
+                    document,
+                    _first_elem(proto.h2_p, proto.h1_p),
+                    block.text,
+                    proto.heading_styles.get(block.level) or proto.body_style,
+                )
+            else:
+                _add_cloned(
+                    document,
+                    proto.h1_p,
+                    block.text,
+                    proto.heading_styles.get(1) or proto.body_style,
+                )
+        elif block.kind == "dash":
+            _add_cloned(document, _first_elem(proto.dash_p, proto.body_p), block.text, proto.body_style)
         elif block.kind == "paragraph":
-            _add_paragraph(document, block.text, proto.body_style)
+            _add_cloned(document, proto.body_p, block.text, proto.body_style)
         elif block.kind == "figure":
             fig_n += 1
             append_cloned_figure(

@@ -78,3 +78,43 @@ def test_replace_body_rejects_unconfirmed(tmp_path: Path):
     un = TitleFields(TF.fields, TF.body_start, TF.figure_caption, TF.table_caption, False)
     with pytest.raises(ComposeError, match="не подтверждён"):
         replace_body(docx, md, un, work)
+
+
+def _ppr_attr(paragraph, child, attr):
+    from docx.oxml.ns import qn
+    pPr = paragraph._element.find(qn("w:pPr"))
+    if pPr is None:
+        return None
+    el = pPr.find(qn(f"w:{child}"))
+    if el is None:
+        return None
+    return el.get(qn(f"w:{attr}"))
+
+
+def test_replace_body_keeps_indent_justify_and_caption_size(tmp_path: Path):
+    work = tmp_path / "lab"
+    shots = work / "screenshots"
+    work.mkdir()
+    img = tmp_path / "one.png"
+    Image.new("RGB", (80, 40)).save(img)
+    docx = work / "report.docx"
+    make_sample_docx(docx, image=img)
+    register_image(img, shots, "Первый", "other", slug="one")
+    mark_ok(shots, "01-one.png")
+    md = work / "report.md"
+    md.write_text(
+        "# Цель работы\n\nНовый абзац цели.\n\n– пункт как в образце\n\n"
+        "![Первый](screenshots/01-one.png)\n",
+        encoding="utf-8",
+    )
+    replace_body(docx, md, TF, work)
+    doc = Document(str(docx))
+    body = next(p for p in doc.paragraphs if p.text.strip() == "Новый абзац цели.")
+    assert _ppr_attr(body, "jc", "val") == "both"
+    assert _ppr_attr(body, "ind", "firstLine") is not None
+    dash = next(p for p in doc.paragraphs if p.text.strip().startswith("– "))
+    assert _ppr_attr(dash, "ind", "left") is not None
+    cap = next(p for p in doc.paragraphs if p.text.startswith("Рисунок 1"))
+    from docx.oxml.ns import qn
+    sz = cap.runs[0]._element.find(qn("w:rPr")).find(qn("w:sz"))
+    assert sz is not None and sz.get(qn("w:val")) == "24"
