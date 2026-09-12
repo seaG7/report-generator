@@ -43,13 +43,14 @@ def _p_text(p_elem) -> str:
     return "".join((t.text or "") for t in p_elem.findall(".//" + qn("w:t")))
 
 
-def _insert_before_sect(document, elem) -> None:
+def _insert_before_sect(document, elem):
     body = document.element.body
     sect = body.find(qn("w:sectPr"))
     if sect is not None:
         sect.addprevious(elem)
     else:
         body.append(elem)
+    return elem
 
 
 def _style_names(document) -> set[str]:
@@ -257,16 +258,27 @@ def _first_elem(*elems):
     return None
 
 
-def _add_cloned(document, proto, text: str, fallback_style: str | None) -> None:
+def _set_space_before(p_elem, before: int) -> None:
+    pPr = p_elem.find(qn("w:pPr"))
+    if pPr is None:
+        pPr = OxmlElement("w:pPr")
+        p_elem.insert(0, pPr)
+    sp = pPr.find(qn("w:spacing"))
+    if sp is None:
+        sp = OxmlElement("w:spacing")
+        pPr.append(sp)
+    sp.set(qn("w:before"), str(before))
+
+
+def _add_cloned(document, proto, text: str, fallback_style: str | None):
     if proto is None:
-        _add_paragraph_style(document, text, fallback_style)
-        return
+        return _add_paragraph_style(document, text, fallback_style)
     new_p = deepcopy(proto)
     _set_cloned_text(new_p, text)
-    _insert_before_sect(document, new_p)
+    return _insert_before_sect(document, new_p)
 
 
-def _add_paragraph_style(document, text: str, style: str | None) -> None:
+def _add_paragraph_style(document, text: str, style: str | None):
     kwargs = {}
     if style:
         kwargs["style"] = style
@@ -275,7 +287,7 @@ def _add_paragraph_style(document, text: str, style: str | None) -> None:
     parent = elem.getparent()
     if parent is not None:
         parent.remove(elem)
-    _insert_before_sect(document, elem)
+    return _insert_before_sect(document, elem)
 
 
 def _add_code(document, text: str, proto: Prototypes) -> None:
@@ -477,30 +489,41 @@ def replace_body(
     )
     fig_n = 0
     tbl_n = 0
+    after_table = False
+
+    def _emit_gap(elem) -> None:
+        nonlocal after_table
+        if after_table and elem is not None:
+            _set_space_before(elem, 120)
+            after_table = False
+
     for block in blocks:
         if block.kind == "heading" and block.text.strip().upper() in {"СОДЕРЖАНИЕ", "CONTENTS"}:
             continue
         if block.kind == "heading":
             if block.level >= 2:
-                _add_cloned(
+                elem = _add_cloned(
                     document,
                     _first_elem(proto.h2_p, proto.h1_p),
                     block.text,
                     proto.heading_styles.get(block.level) or proto.body_style,
                 )
             else:
-                _add_cloned(
+                elem = _add_cloned(
                     document,
                     proto.h1_p,
                     block.text,
                     proto.heading_styles.get(1) or proto.body_style,
                 )
+            _emit_gap(elem)
         elif block.kind == "dash":
-            _add_cloned(document, proto.body_p, block.text, proto.body_style)
+            elem = _add_cloned(document, proto.body_p, block.text, proto.body_style)
+            _emit_gap(elem)
         elif block.kind == "paragraph":
             if _is_toc_line(block.text):
                 continue
-            _add_cloned(document, proto.body_p, block.text, proto.body_style)
+            elem = _add_cloned(document, proto.body_p, block.text, proto.body_style)
+            _emit_gap(elem)
         elif block.kind == "figure":
             fig_n += 1
             body_el = document.element.body
@@ -535,6 +558,7 @@ def replace_body(
                 block.rows,
                 title_fields.table_caption,
             )
+            after_table = True
         elif block.kind == "code":
             _add_code(document, block.text, proto)
     insert_word_toc(document, tab_pos_dxa=_content_dxa(document))

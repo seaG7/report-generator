@@ -136,7 +136,8 @@ def test_replace_body_table_fits_page_and_header_is_white(tmp_path: Path):
         "Таблица: Результаты\n\n"
         "| A | B | C | D | E |\n"
         "| --- | --- | --- | --- | --- |\n"
-        "| 1 | 2 | 3 | 4 | 5 |\n",
+        "| 1 | 2 | 3 | 4 | 5 |\n\n"
+        "Абзац после таблицы.\n",
         encoding="utf-8",
     )
     replace_body(docx, md, TF, work)
@@ -149,6 +150,21 @@ def test_replace_body_table_fits_page_and_header_is_white(tmp_path: Path):
     assert width <= content
     shd = tbl.rows[0].cells[0]._tc.find(qn("w:tcPr")).find(qn("w:shd"))
     assert shd is not None and shd.get(qn("w:fill")) == "FFFFFF"
+    after = None
+    saw_tbl = False
+    for child in doc.element.body:
+        from lxml import etree as _et
+
+        tag = _et.QName(child).localname
+        if tag == "tbl":
+            saw_tbl = True
+            continue
+        if saw_tbl and tag == "p":
+            after = child
+            break
+    assert after is not None
+    sp = after.find(qn("w:pPr")).find(qn("w:spacing"))
+    assert sp is not None and sp.get(qn("w:before")) == "120"
 
 
 def test_replace_body_inserts_updateable_word_toc(tmp_path: Path):
