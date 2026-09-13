@@ -268,8 +268,7 @@ Alt = текст подписи без префикса «Рисунок N». П
 
 В репозитории: `tools/`, скиллы, `AGENTS.md`, `student.yaml.example`, фикстуры, этот спек.  
 `student.yaml` — в `.gitignore` (персональные данные).  
-`subjects/**/work/`, `subjects/**/screenshots/`, `subjects/**/preview/` — в `.gitignore`.  
-`subjects/<предмет>/sample.docx` и готовые `report.docx` пользователь коммитит сам, если хочет.
+Весь каталог `subjects/` кроме `subjects/.gitkeep` — в `.gitignore` (эталоны, PDF, отчёты).
 
 ## Критерий готовности системы
 

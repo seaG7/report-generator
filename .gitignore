@@ -1,12 +1,19 @@
+# personal identity
 student.yaml
-subjects/*/*.pdf
-subjects/**/inbox/*.pdf
-subjects/**/.preview/
-subjects/**/work/
-subjects/**/screenshots/
-subjects/**/preview/
+
+# coursework: samples, assignments, reports, screenshots
+subjects/*
+!subjects/.gitkeep
+
+# python
 __pycache__/
 .pytest_cache/
 *.pyc
 .venv/
 venv/
+
+# generated / OS
+*.tmp.docx
+Thumbs.db
+Desktop.ini
+.DS_Store
