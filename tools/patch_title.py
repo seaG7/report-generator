@@ -100,10 +100,14 @@ def main() -> int:
     p.add_argument("--work", required=True)
     args = p.parse_args()
     try:
+        student_path = Path(args.student)
+        local = Path(args.work).resolve().parent / "student.yaml"
+        if local.is_file():
+            student_path = local
         patch_title(
             Path(args.docx),
             load_title_fields(Path(args.title_fields)),
-            load_student(Path(args.student)),
+            load_student(student_path),
             load_work(Path(args.work)),
         )
     except (TitleFieldNotFound, TitleNotConfirmed) as exc:

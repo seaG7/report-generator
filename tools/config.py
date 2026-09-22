@@ -44,6 +44,7 @@ class TitleFields:
     figure_caption: str
     table_caption: str
     confirmed: bool
+    listing_caption: str = "Листинг {n} — {caption}"
 
 
 def load_student(path: Path) -> Student:
@@ -83,6 +84,7 @@ def load_title_fields(path: Path) -> TitleFields:
         figure_caption=data.get("figure_caption") or "Рисунок {n} – {caption}",
         table_caption=data.get("table_caption") or "Таблица {n} – {caption}",
         confirmed=bool(data.get("confirmed", False)),
+        listing_caption=data.get("listing_caption") or "Листинг {n} — {caption}",
     )
 
 

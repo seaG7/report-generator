@@ -34,6 +34,7 @@ def create_work(
     number: int | None = None,
     reset_docx: bool = False,
     move_pdf: bool = False,
+    student: Path | None = None,
     repo: Path | None = None,
 ) -> Path:
     root = Path(repo) if repo is not None else repo_root()
@@ -55,6 +56,11 @@ def create_work(
                 shutil.move(str(pdf), str(target_pdf))
             else:
                 shutil.copy2(pdf, target_pdf)
+    if student is not None:
+        src = Path(student)
+        if not src.is_file():
+            raise NewWorkError(f"Нет файла студента: {src}")
+        shutil.copy2(src, work / "student.yaml")
     return work
 
 
@@ -65,6 +71,7 @@ def main() -> int:
     p.add_argument("--pdf")
     p.add_argument("--number", type=int)
     p.add_argument("--reset-docx", action="store_true")
+    p.add_argument("--student", help="student.yaml этой работы (копируется в lab-*/student.yaml)")
     p.add_argument("--repo")
     args = p.parse_args()
     try:
@@ -74,6 +81,7 @@ def main() -> int:
             Path(args.pdf) if args.pdf else None,
             number=args.number,
             reset_docx=args.reset_docx,
+            student=Path(args.student) if args.student else None,
             repo=Path(args.repo) if args.repo else None,
         )
     except NewWorkError as e:

@@ -145,6 +145,10 @@ def _pdf_to_pngs(pdf_path: Path, out_dir: Path) -> list[Path]:
         doc.close()
     if not pages:
         raise RenderUnavailable("Не удалось получить страницы")
+    keep = {p.resolve() for p in pages}
+    for old in out_dir.glob("page-*.png"):
+        if old.resolve() not in keep:
+            old.unlink()
     return pages
 
 

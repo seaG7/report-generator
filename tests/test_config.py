@@ -40,6 +40,7 @@ def test_load_title_fields_confirmed(tmp_path: Path):
     assert tf.confirmed is True
     assert tf.body_start.type == "heading_text"
     assert tf.fields["student_name"].find == "Петров"
+    assert tf.listing_caption.startswith("Листинг")
 
 
 def test_load_title_fields_missing_body_start(tmp_path: Path):

@@ -18,6 +18,7 @@ class Block:
 
 _IMG = re.compile(r"^!\[([^\]]*)\]\(([^)]+)\)\s*$")
 _TABLE_CAPTION = re.compile(r"^Таблица:\s*(.+)\s*$")
+_LISTING_CAPTION = re.compile(r"^Листинг:\s*(.+)\s*$")
 _HEADING = re.compile(r"^(#{1,3})\s+(.+?)\s*$")
 _DASH = re.compile(r"^[–—\-]\s+(.+?)\s*$")
 
@@ -26,9 +27,25 @@ def _split_row(line: str) -> list[str]:
     s = line.strip()
     if s.startswith("|"):
         s = s[1:]
-    if s.endswith("|"):
+    if s.endswith("|") and not s.endswith("\\|"):
         s = s[:-1]
-    return [c.strip() for c in s.split("|")]
+    parts: list[str] = []
+    buf: list[str] = []
+    i = 0
+    while i < len(s):
+        if s[i] == "\\" and i + 1 < len(s) and s[i + 1] == "|":
+            buf.append("|")
+            i += 2
+            continue
+        if s[i] == "|":
+            parts.append("".join(buf).strip())
+            buf = []
+            i += 1
+            continue
+        buf.append(s[i])
+        i += 1
+    parts.append("".join(buf).strip())
+    return parts
 
 
 def _is_separator(cells: list[str]) -> bool:
@@ -42,6 +59,7 @@ def parse_report_md(text: str) -> list[Block]:
     blocks: list[Block] = []
     i = 0
     pending_table_caption = ""
+    pending_listing_caption = ""
     para: list[str] = []
 
     def flush_para() -> None:
@@ -61,7 +79,15 @@ def parse_report_md(text: str) -> list[Block]:
             while i < len(lines) and not lines[i].strip().startswith("```"):
                 buf.append(lines[i])
                 i += 1
-            blocks.append(Block(kind="code", text="\n".join(buf), lang=lang))
+            blocks.append(
+                Block(
+                    kind="code",
+                    text="\n".join(buf),
+                    lang=lang,
+                    caption=pending_listing_caption,
+                )
+            )
+            pending_listing_caption = ""
             i += 1
             continue
         m_h = _HEADING.match(line)
@@ -86,6 +112,12 @@ def parse_report_md(text: str) -> list[Block]:
         if m_tc:
             flush_para()
             pending_table_caption = m_tc.group(1)
+            i += 1
+            continue
+        m_lc = _LISTING_CAPTION.match(line.strip())
+        if m_lc:
+            flush_para()
+            pending_listing_caption = m_lc.group(1)
             i += 1
             continue
         if line.strip().startswith("|"):
