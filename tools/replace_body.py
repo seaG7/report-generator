@@ -87,6 +87,21 @@ def _has_jc(p_elem, val: str) -> bool:
     return jc is not None and jc.get(qn("w:val")) == val
 
 
+def _has_body_metrics(p_elem) -> bool:
+    """Justified text with a first-line indent. A later rebuild must clone this, not a plain paragraph."""
+    pPr = p_elem.find(qn("w:pPr"))
+    if pPr is None:
+        return False
+    jc = pPr.find(qn("w:jc"))
+    ind = pPr.find(qn("w:ind"))
+    return (
+        jc is not None
+        and jc.get(qn("w:val")) == "both"
+        and ind is not None
+        and bool(ind.get(qn("w:firstLine")))
+    )
+
+
 def _drawing_cx(p_elem) -> int:
     ext = p_elem.find(".//" + WP_EXTENT)
     if ext is None or ext.get("cx") is None:
@@ -129,21 +144,24 @@ def collect_prototypes(document, start_elem=None) -> Prototypes:
             if text.startswith("– ") or text.startswith("— "):
                 if dash_p is None:
                     dash_p = deepcopy(child)
+                if _has_body_metrics(child) and (body_p is None or not _has_body_metrics(body_p)):
+                    body_p = deepcopy(child)
             elif style_id in {"1", "Heading1"} and not _is_toc_line(text):
-                if _has_jc(child, "center") and h1_center_p is None:
-                    h1_center_p = deepcopy(child)
+                if _has_jc(child, "center"):
+                    if h1_center_p is None:
+                        h1_center_p = deepcopy(child)
                 elif h1_p is None:
                     h1_p = deepcopy(child)
             elif style_id in {"2", "Heading2"} and h2_p is None and not _is_toc_line(text):
                 h2_p = deepcopy(child)
             elif (
-                body_p is None
-                and text
+                text
                 and child.find(".//" + qn("w:drawing")) is None
                 and not text.startswith("Рисунок")
                 and not text.startswith("Таблица")
                 and style_id not in {"1", "2", "Heading1", "Heading2"}
                 and not _is_toc_line(text)
+                and (body_p is None or (not _has_body_metrics(body_p) and _has_body_metrics(child)))
             ):
                 body_p = deepcopy(child)
             prev_p = child
@@ -359,7 +377,7 @@ def _is_unnumbered_heading(text: str) -> bool:
 
 def _heading_starts_new_page(text: str) -> bool:
     t = " ".join(text.strip().upper().split())
-    if t in {"ЗАКЛЮЧЕНИЕ", "ПРИЛОЖЕНИЯ"}:
+    if t in {"ЗАКЛЮЧЕНИЕ", "ВЫВОД", "ВЫВОДЫ", "ПРИЛОЖЕНИЯ"}:
         return True
     if t.startswith("СПИСОК ИСПОЛЬЗОВАН") or t.startswith("СПИСОК ИСПОЛЬЗУЕМ"):
         return True
@@ -381,6 +399,15 @@ def _emit_listing_caption(document, proto: Prototypes, text: str) -> None:
     _ensure_keep_next(elem)
 
 
+def _strip_bookmarks(p_elem) -> None:
+    """Sample headings keep TOC bookmarks. Cloning them repeats one name on every heading, and Word's PAGEREF then points at the last copy."""
+    for tag in ("bookmarkStart", "bookmarkEnd"):
+        for el in list(p_elem.findall(qn(f"w:{tag}"))):
+            parent = el.getparent()
+            if parent is not None:
+                parent.remove(el)
+
+
 def _add_cloned(
     document,
     proto,
@@ -394,8 +421,11 @@ def _add_cloned(
         elem = _add_paragraph_style(document, text, fallback_style)
         if bold:
             _ensure_run_bold(elem)
+        if keep_page_break:
+            _ensure_page_break_before(elem)
         return elem
     new_p = deepcopy(proto)
+    _strip_bookmarks(new_p)
     _strip_ppr(new_p, "keepNext", "keepLines", "numPr")
     if not keep_page_break:
         _strip_ppr(new_p, "pageBreakBefore")
@@ -589,9 +619,9 @@ def _set_outer_frame(tbl) -> None:
     _set_border(borders, "insideV", "nil")
 
 
-def _nil_bottom_border(tbl) -> None:
+def _last_row_bottom(tbl, val: str) -> None:
     borders = _tbl_borders(tbl)
-    _set_border(borders, "bottom", "nil")
+    _set_border(borders, "bottom", val)
     trs = tbl.findall(qn("w:tr"))
     if not trs:
         return
@@ -604,7 +634,16 @@ def _nil_bottom_border(tbl) -> None:
         if tc_borders is None:
             tc_borders = OxmlElement("w:tcBorders")
             tcPr.append(tc_borders)
-        _set_border(tc_borders, "bottom", "nil")
+        _set_border(tc_borders, "bottom", val)
+
+
+def _nil_bottom_border(tbl) -> None:
+    _last_row_bottom(tbl, "nil")
+
+
+def _restore_bottom_border(tbl) -> None:
+    """Кусок таблицы на странице закрывается нижней линией, а не обрывается."""
+    _last_row_bottom(tbl, "single")
 
 
 def _style_listing_cell(tc, *, first: bool, last: bool) -> None:
@@ -687,6 +726,54 @@ def _normalize_col_widths(widths: list[int], total: int, min_dxa: int) -> list[i
     return [max(1, int(w)) for w in widths]
 
 
+# «№» и поля ячейки: одна цифра, без запаса на соседние столбцы.
+INDEX_COL_DXA = 480
+
+
+def _is_index_header(text: str) -> bool:
+    t = " ".join((text or "").replace("\xa0", " ").split()).casefold()
+    return t in {"№", "№ п/п", "№ п.п.", "#"}
+
+
+def _pin_index_columns(widths: list[int], headers: list[str], total: int) -> list[int]:
+    """Колонка номера вмещает одну цифру, освобождённая ширина уходит остальным столбцам."""
+    index = [i for i, h in enumerate(headers) if i < len(widths) and _is_index_header(h)]
+    if not index or total <= 0:
+        return widths
+    others = [i for i in range(len(widths)) if i not in index]
+    if not others:
+        return widths
+    leftover = total - INDEX_COL_DXA * len(index)
+    if leftover <= 0:
+        return widths
+    base = sum(max(widths[i], 1) for i in others)
+    acc = 0
+    pinned = list(widths)
+    for i in index:
+        pinned[i] = INDEX_COL_DXA
+    for n, i in enumerate(others):
+        if n == len(others) - 1:
+            pinned[i] = max(1, leftover - acc)
+        else:
+            share = max(1, int(leftover * max(widths[i], 1) / base))
+            pinned[i] = share
+            acc += share
+    return pinned
+
+
+def _header_floor(header: str, cells: list[str] | None = None) -> int:
+    """Ширина, при которой самое длинное слово шапки или короткой ячейки остаётся на одной строке."""
+    words: list[str] = []
+    for text in [header, *(cells or [])]:
+        raw = (text or "").strip()
+        if raw.lower().startswith("http"):
+            continue
+        words.extend(w for w in raw.replace("/", " ").replace("-", " ").split() if w)
+    letters = min(10, max((len(w) for w in words), default=1))
+    # 12 пт полужирный: восьмибуквенное «Страница» не должно рваться.
+    return max(800, 145 * letters + 300)
+
+
 def _content_col_weights(headers: list[str], rows: list[list[str]], ncols: int) -> list[int]:
     weights: list[int] = []
     for i in range(ncols):
@@ -706,6 +793,8 @@ def _fit_table_width(
     width_dxa: int,
     ncols: int,
     col_weights: list[int] | None = None,
+    headers: list[str] | None = None,
+    rows: list[list[str]] | None = None,
 ) -> None:
     tblPr = tbl.find(qn("w:tblPr"))
     if tblPr is None:
@@ -728,8 +817,15 @@ def _fit_table_width(
         old = [int(col.get(qn("w:w") or "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}w") or 0) for col in grid.findall(qn("w:gridCol"))]
     if col_weights is not None and len(col_weights) == ncols and sum(max(w, 1) for w in col_weights) > 0:
         total_w = sum(max(w, 1) for w in col_weights)
-        min_dxa = max(1600 if ncols >= 5 else 1400, width_dxa // max(ncols * 6, 1))
-        widths = [max(min_dxa, int(width_dxa * max(w, 1) / total_w)) for w in col_weights]
+        min_dxa = 800
+        floors = []
+        for i in range(ncols):
+            if headers and i < len(headers):
+                cells = [r[i] for r in (rows or []) if i < len(r)]
+                floors.append(_header_floor(headers[i], cells))
+            else:
+                floors.append(min_dxa)
+        widths = [max(floors[i], int(width_dxa * max(w, 1) / total_w)) for i, w in enumerate(col_weights)]
         cap = max(min_dxa, int(width_dxa * (0.45 if ncols >= 5 else 0.5)))
         widths = [min(w, cap) for w in widths]
     elif len(old) == ncols and sum(old) > 0:
@@ -741,6 +837,8 @@ def _fit_table_width(
         widths = [base] * ncols
         min_dxa = max(200, base)
     widths = _normalize_col_widths(widths, width_dxa, min_dxa)
+    if headers:
+        widths = _pin_index_columns(widths, headers, width_dxa)
     if grid is None:
         grid = OxmlElement("w:tblGrid")
         tbl.insert(1, grid)
@@ -811,7 +909,14 @@ def _finish_data_table(tbl, headers: list[str], rows: list[list[str]], width_dxa
     ncols = len(tr0[0].findall(qn("w:tc"))) if tr0 else max(
         (len(headers) if headers else 0), max((len(r) for r in rows), default=0), 1
     )
-    _fit_table_width(tbl, width_dxa, ncols, col_weights=_content_col_weights(headers, rows, ncols))
+    _fit_table_width(
+        tbl,
+        width_dxa,
+        ncols,
+        col_weights=_content_col_weights(headers, rows, ncols),
+        headers=headers,
+        rows=rows,
+    )
     trs = tbl.findall(qn("w:tr"))
     for i, tr in enumerate(trs):
         trPr = tr.find(qn("w:trPr"))

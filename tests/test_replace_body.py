@@ -144,7 +144,7 @@ def test_bibliography_and_appendices_start_new_page(tmp_path: Path):
 
     work, docx, md = _make_work(
         tmp_path,
-        "# ЦЕЛЬ РАБОТЫ\n\nАбзац.\n\n# ЗАКЛЮЧЕНИЕ\n\nТекст выводов.\n\n"
+        "# ЦЕЛЬ РАБОТЫ\n\nАбзац.\n\n# ВЫВОД\n\nТекст вывода.\n\n# ВЫВОДЫ\n\nТекст выводов.\n\n# ЗАКЛЮЧЕНИЕ\n\nТекст заключения.\n\n"
         "# СПИСОК ИСПОЛЬЗОВАННЫХ ИСТОЧНИКОВ\n\n1. Источник.\n\n"
         "# ПРИЛОЖЕНИЯ\n\nПеречень.\n\n# Приложение А\n\nМатериал.\n",
     )
@@ -156,6 +156,8 @@ def test_bibliography_and_appendices_start_new_page(tmp_path: Path):
         pPr = p._element.find(qn("w:pPr"))
         return pPr is not None and pPr.find(qn("w:pageBreakBefore")) is not None
 
+    assert pbb("ВЫВОД")
+    assert pbb("ВЫВОДЫ")
     assert pbb("ЗАКЛЮЧЕНИЕ")
     assert pbb("СПИСОК ИСПОЛЬЗОВАННЫХ ИСТОЧНИКОВ")
     assert pbb("ПРИЛОЖЕНИЯ")
@@ -354,6 +356,52 @@ def test_replace_body_table_fits_page_and_header_is_white(tmp_path: Path):
     assert trPr.find(qn("w:cantSplit")) is not None
 
 
+def _mark_bookmark(paragraph, name: str, bid: str) -> None:
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    start = OxmlElement("w:bookmarkStart")
+    start.set(qn("w:id"), bid)
+    start.set(qn("w:name"), name)
+    end = OxmlElement("w:bookmarkEnd")
+    end.set(qn("w:id"), bid)
+    paragraph._element.insert(0, start)
+    paragraph._element.append(end)
+
+
+def test_cloned_headings_do_not_repeat_sample_toc_bookmarks(tmp_path: Path):
+    from collections import Counter
+    from docx.oxml.ns import qn
+
+    work, docx, md = _make_work(
+        tmp_path,
+        "# Введение\n\nТекст.\n\n## Первый подраздел\n\nАбзац.\n\n# 1 Глава\n\n## Второй подраздел\n\nЕщё.\n",
+    )
+    sample = Document(str(docx))
+    goal = next(p for p in sample.paragraphs if p.text.strip() == "Цель работы")
+    _mark_bookmark(goal, "_TocSampleH1", "50")
+    sub = sample.add_heading("Подзаголовок образца", level=2)
+    _mark_bookmark(sub, "_TocSampleH2", "51")
+    sample.save(str(docx))
+    replace_body(docx, md, TF, work)
+    out = Document(str(docx))
+    pairs = []
+    for mark in out.element.body.findall(".//" + qn("w:bookmarkStart")):
+        name = mark.get(qn("w:name")) or ""
+        if not name.startswith("_Toc"):
+            continue
+        parent = mark.getparent()
+        text = "".join(t.text or "" for t in parent.findall(".//" + qn("w:t"))).strip()
+        pairs.append((name, text))
+    assert "_TocSampleH1" not in {name for name, _ in pairs}
+    assert "_TocSampleH2" not in {name for name, _ in pairs}
+    counts = Counter(name for name, _ in pairs)
+    assert counts and all(n == 1 for n in counts.values())
+    by_text = {text: name for name, text in pairs}
+    assert by_text["Введение"] != by_text["1 Глава"]
+    assert by_text["Первый подраздел"] != by_text["Второй подраздел"]
+
+
 def test_replace_body_inserts_updateable_word_toc(tmp_path: Path):
     from docx.oxml.ns import qn
 
@@ -510,6 +558,31 @@ def test_table_column_widths_follow_content_not_equal(tmp_path: Path):
     look = tbl._tbl.find(qn("w:tblPr")).find(qn("w:tblLook"))
     if look is not None and look.get(qn("w:firstRow")) is not None:
         assert look.get(qn("w:firstRow")) != "0"
+
+
+def test_index_column_fits_one_digit(tmp_path: Path):
+    from docx.oxml.ns import qn
+
+    work, docx, md = _make_work(
+        tmp_path,
+        "# Цель работы\n\nАбзац.\n\n"
+        "Таблица: Страницы\n\n"
+        "| № | Сайт | Ссылка |\n"
+        "| --- | --- | --- |\n"
+        "| 1 | Выживака | https://vijivaka.com/orienting/stars/kak-najti-polyarnuyu-zvezdu.html |\n"
+        "| 2 | Star Walk | https://starwalk.space/ru/news/polaris-north-star |\n",
+    )
+    replace_body(docx, md, TF, work)
+    doc = Document(str(docx))
+    tbl = doc.tables[-1]
+    grid = tbl._tbl.find(qn("w:tblGrid"))
+    widths = [int(c.get(qn("w:w"))) for c in grid.findall(qn("w:gridCol"))]
+    assert len(widths) == 3
+    assert widths[0] <= 520
+    assert widths[1] > widths[0]
+    assert widths[2] > widths[1]
+    tbl_w = tbl._tbl.find(qn("w:tblPr")).find(qn("w:tblW"))
+    assert sum(widths) == int(tbl_w.get(qn("w:w")))
 
 
 def test_stacked_figure_and_table_are_rejected(tmp_path: Path):

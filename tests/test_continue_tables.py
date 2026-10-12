@@ -4,7 +4,7 @@ from docx import Document
 from docx.oxml.ns import qn
 from lxml import etree
 
-from tools.continue_tables import _apply_splits
+from tools.continue_tables import _apply_splits, _merge_pair
 
 
 def test_split_inserts_caption_as_paragraph_not_cell(tmp_path: Path):
@@ -48,3 +48,28 @@ def test_split_inserts_caption_as_paragraph_not_cell(tmp_path: Path):
     assert tags[first_tbl + 1] == "p"
     assert tags[first_tbl + 2] == "tbl"
     assert out.element.body[first_tbl + 1].xpath("string()") == "Продолжение Таблицы 5"
+    bottom = out.tables[0]._tbl.find(qn("w:tblPr")).find(qn("w:tblBorders")).find(qn("w:bottom"))
+    assert bottom is not None and bottom.get(qn("w:val")) == "single"
+    last_cell = out.tables[0].rows[-1].cells[0]._tc
+    cell_bottom = last_cell.find(qn("w:tcPr")).find(qn("w:tcBorders")).find(qn("w:bottom"))
+    assert cell_bottom is not None and cell_bottom.get(qn("w:val")) == "single"
+
+
+def test_same_page_continuations_merge_back(tmp_path: Path):
+    doc = Document()
+    doc.add_paragraph("Таблица 11 — Частотность")
+    first = doc.add_table(rows=3, cols=2)
+    first.rows[0].cells[0].text = "Запрос"
+    first.rows[1].cells[0].text = "подобно"
+    first.rows[2].cells[0].text = "выразить"
+    cap = doc.add_paragraph("Продолжение Таблицы 11")
+    second = doc.add_table(rows=3, cols=2)
+    second.rows[0].cells[0].text = "Запрос"
+    second.rows[1].cells[0].text = "подстрока"
+    second.rows[2].cells[0].text = "естьnull"
+    assert _merge_pair(first._tbl, second._tbl)
+    assert cap._element.getparent() is None
+    assert len(doc.tables) == 1
+    texts = [row.cells[0].text for row in doc.tables[0].rows]
+    assert texts == ["Запрос", "подобно", "выразить", "подстрока", "естьnull"]
+    assert not any(p.text.startswith("Продолжение") for p in doc.paragraphs)
